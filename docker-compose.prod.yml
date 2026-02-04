@@ -1,0 +1,66 @@
+version: '3.9'
+
+# Production Docker Compose configuration
+# Build và deploy với optimizations
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: todo-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tododb}
+      POSTGRES_USER: ${POSTGRES_USER:-todo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-todosecret}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-todo} -d ${POSTGRES_DB:-tododb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - todo-network
+    # Không expose port ra ngoài cho security
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: todo-backend-prod
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-todo}:${POSTGRES_PASSWORD:-todosecret}@postgres:5432/${POSTGRES_DB:-tododb}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - todo-network
+    # Không expose port ra ngoài
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: todo-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+    networks:
+      - todo-network
+
+volumes:
+  postgres_prod_data:
+    name: todo_postgres_prod_data
+
+networks:
+  todo-network:
+    name: todo_network_prod
+    driver: bridge
